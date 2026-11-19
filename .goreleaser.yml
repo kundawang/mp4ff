@@ -49,6 +49,12 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 
+  - id: mp4ff-subtovtt
+    main: ./cmd/mp4ff-subtovtt
+    binary: mp4ff-subtovtt
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
   - id: mp4ff-mvhevc
     main: ./cmd/mp4ff-mvhevc
     binary: mp4ff-mvhevc

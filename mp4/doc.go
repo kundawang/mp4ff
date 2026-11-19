@@ -144,6 +144,18 @@ such as [LocalFileResolver], from the other files:
 
 [examples/segmenter] segments such files this way.
 
+# Exporting a WebVTT track
+
+A wvtt track carries WebVTT cues as ISOBMFF samples. [File.ExportWebVTT] turns such a track
+into a [WebVTT] cue list for a progressive or fragmented file:
+
+	vtt, err := parsedMp4.ExportWebVTT(0, nil) // 0 is the first wvtt track
+	err = vtt.Encode(w)                       // writes a .vtt file
+
+Cues that a track restates over consecutive samples are merged, and a vtte sample ends the
+cues that are active where it starts. A vttn sample of the experimental wvtc paint model lets
+the active cues continue over its duration. Use [ParseWebVTT] to read a WebVTT file back.
+
 # More efficient I/O using SliceReader and SliceWriter
 
 The use of the interfaces [io.Reader] and [io.Writer] for reading and writing boxes gives a lot of

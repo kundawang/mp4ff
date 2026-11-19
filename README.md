@@ -31,6 +31,7 @@ The [cmd](cmd) directory has command line tools built with the library:
 * [mp4ff-pslister](cmd/mp4ff-pslister) prints the AVC and HEVC parameter sets and the AV1 sequence header
 * [mp4ff-nallister](cmd/mp4ff-nallister) lists the NAL units and picture types of AVC, HEVC and VVC video
 * [mp4ff-subslister](cmd/mp4ff-subslister) lists WebVTT and TTML subtitle samples
+* [mp4ff-subtovtt](cmd/mp4ff-subtovtt) exports WebVTT subtitles from an mp4 wvtt track to a `.vtt` file
 * [mp4ff-crop](cmd/mp4ff-crop) crops a progressive mp4 file
 * [mp4ff-encrypt](cmd/mp4ff-encrypt) and [mp4ff-decrypt](cmd/mp4ff-decrypt) encrypt and decrypt
   fragmented files with Common Encryption

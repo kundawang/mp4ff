@@ -8,6 +8,7 @@ The tools are built with the mp4ff library. Run a tool with `-h` to see all its 
 | [mp4ff-pslister](mp4ff-pslister) | Extracts and displays the parameter sets of AVC and HEVC (SPS, PPS, VPS) from an mp4 file, an Annex B byte stream or hex input, and the AV1 sequence header from an mp4 file. VVC is not supported. |
 | [mp4ff-nallister](mp4ff-nallister) | Lists NAL units and picture types of AVC, HEVC or VVC video in a progressive or fragmented mp4 file, or in an Annex B byte stream. It can also print SEI messages. Video codecs without NAL units, such as AV1 and VP9, are not supported. |
 | [mp4ff-subslister](mp4ff-subslister) | Lists details of wvtt, wvtc, stpp or stpc (WebVTT or TTML in ISOBMFF) subtitle samples. |
+| [mp4ff-subtovtt](mp4ff-subtovtt) | Exports the cues of a wvtt track to a standalone `.vtt` file. |
 | [mp4ff-crop](mp4ff-crop) | Crops a **progressive** mp4 file to just before a sync sample after a given duration. |
 | [mp4ff-encrypt](mp4ff-encrypt) | Encrypts a fragmented file with the cenc or cbcs Common Encryption scheme. |
 | [mp4ff-decrypt](mp4ff-decrypt) | Decrypts a fragmented file encrypted with the cenc or cbcs Common Encryption scheme. |
