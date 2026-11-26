@@ -302,8 +302,74 @@ func (b BoxHeader) payloadLen() int {
 	return int(min(b.Size-uint64(b.Hdrlen), math.MaxInt))
 }
 
+// ErrSizeZeroNotSupported is returned when a box header with size 0 is read in
+// a context that may not resolve it to the end of the file: a context-free
+// header decode, a nested box, or a box type other than a terminal top-level
+// mdat. DecodeFile, DecodeBox and the seeking/lazy paths resolve a terminal
+// mdat size 0 to EOF instead.
+var ErrSizeZeroNotSupported = errors.New("Size 0, meaning to end of file, not supported")
+
+// errSizeZeroNotSupported keeps internal references short.
+var errSizeZeroNotSupported = ErrSizeZeroNotSupported
+
 // DecodeHeader decodes a box header (size + box type + possible largeSize)
+//
+// A size of 0 means that the box extends to the end of the file (ISO/IEC
+// 14496-12). A plain io.Reader cannot tell where that is and cannot leave the
+// header for a context that can, so the size is not resolved here. Use
+// DecodeHeaderSeek for a reader that can measure the remainder, or decode a
+// top-level box with DecodeBox, which reads a terminal mdat to EOF.
 func DecodeHeader(r io.Reader) (BoxHeader, error) {
+	return decodeHeader(r, zeroSizeOptions{})
+}
+
+// DecodeHeaderSeek decodes a box header from rs, which can seek to its end, and
+// resolves a size of 0 to the bytes left in rs. The position after the header is
+// restored, so rs is positioned right after the header on return.
+//
+// A size of 0 is only legal for a top-level box that is the last one in the
+// file, since the box extends to the end of the file. Nested boxes are decoded
+// through the SliceReader path, which keeps rejecting it.
+func DecodeHeaderSeek(rs io.ReadSeeker) (BoxHeader, error) {
+	return decodeHeader(rs, zeroSizeOptions{allow: true, remaining: measureRemaining(rs)})
+}
+
+// zeroSizeOptions tells decodeHeader how to handle a size of 0. When allow is
+// false, size 0 is rejected. Otherwise mdatOnly restricts resolution to mdat,
+// the box that ISO/IEC 14496-12 normally writes with size 0 as the last
+// top-level box. With remaining set, the size is resolved to the measured
+// remainder plus the header length. Without remaining, an accepted mdat keeps
+// Size 0 as a marker that DecodeMdat reads until EOF.
+type zeroSizeOptions struct {
+	allow     bool
+	mdatOnly  bool
+	remaining func() (uint64, error)
+}
+
+// measureRemaining returns a function that reports how many bytes rs has from
+// its current position to its end, without changing the position afterwards.
+func measureRemaining(rs io.ReadSeeker) func() (uint64, error) {
+	return func() (uint64, error) {
+		pos, err := rs.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return 0, err
+		}
+		end, err := rs.Seek(0, io.SeekEnd)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := rs.Seek(pos, io.SeekStart); err != nil {
+			return 0, err
+		}
+		if end < pos {
+			return 0, fmt.Errorf("end %d is before current position %d", end, pos)
+		}
+		return uint64(end - pos), nil
+	}
+}
+
+// decodeHeader is DecodeHeader with control over how a size of 0 is handled.
+func decodeHeader(r io.Reader, zero zeroSizeOptions) (BoxHeader, error) {
 	buf := make([]byte, boxHeaderSize)
 	n, err := io.ReadFull(r, buf)
 	if err != nil {
@@ -327,10 +393,25 @@ func DecodeHeader(r io.Reader) (BoxHeader, error) {
 		}
 		size = binary.BigEndian.Uint64(buf)
 		headerLen += largeSizeLen
-	case 0: // size 0 means to end of file
-		return BoxHeader{}, fmt.Errorf("Size 0, meaning to end of file, not supported")
+	case 0: // size 0 means the box extends to the end of the file
+		if !zero.allow || (zero.mdatOnly && boxType != "mdat") {
+			return BoxHeader{}, errSizeZeroNotSupported
+		}
+		if zero.remaining != nil {
+			left, err := zero.remaining()
+			if err != nil {
+				return BoxHeader{}, fmt.Errorf("size 0, measuring what is left: %w", err)
+			}
+			size = left + uint64(headerLen)
+			break
+		}
+		if boxType != "mdat" {
+			// A non-seekable stream cannot bound any other box.
+			return BoxHeader{}, errSizeZeroNotSupported
+		}
+		// Keep size 0 as the to-EOF marker; DecodeMdat reads until EOF.
 	}
-	if uint64(headerLen) > size {
+	if size != 0 && uint64(headerLen) > size {
 		return BoxHeader{}, fmt.Errorf("box header size %d exceeds box size %d", headerLen, size)
 	}
 	return BoxHeader{boxType, size, headerLen}, nil
@@ -431,7 +512,16 @@ type BoxDecoder func(hdr BoxHeader, startPos uint64, r io.Reader) (Box, error)
 
 // DecodeBox decodes a box
 func DecodeBox(startPos uint64, r io.Reader) (Box, error) {
-	h, err := DecodeHeader(r)
+	// At the top level, a size of 0 extends a terminal mdat to the end of
+	// the file. A seeking reader measures the exact size. A plain stream
+	// cannot measure it, so DecodeMdat reads the payload until EOF. Size 0 on
+	// any other box type stays an error, since such a box is not the media box
+	// the rule exists for and accepting it could swallow later boxes.
+	zero := zeroSizeOptions{allow: true, mdatOnly: true}
+	if rs, ok := r.(io.ReadSeeker); ok {
+		zero.remaining = measureRemaining(rs)
+	}
+	h, err := decodeHeader(r, zero)
 	if err != nil {
 		return nil, err
 	}
@@ -465,12 +555,17 @@ func DecodeBoxBody(startPos uint64, hdr BoxHeader, r io.Reader) (Box, error) {
 
 // DecodeBoxLazyMdat decodes a box but doesn't read the payload of mdat, free or skip into memory
 func DecodeBoxLazyMdat(startPos uint64, r io.ReadSeeker) (Box, error) {
-	h, err := DecodeHeader(r)
+	// A terminal size-0 mdat has its size measured from the seeker. Other
+	// size-0 boxes are rejected, as in the other decode paths.
+	h, err := decodeHeader(r, zeroSizeOptions{
+		allow:     true,
+		mdatOnly:  true,
+		remaining: measureRemaining(r),
+	})
 	if err != nil {
 		return nil, err
 	}
 	return DecodeBoxBodyLazily(startPos, h, r)
-
 }
 
 // DecodeBoxBodyLazily decodes the body of a box whose header h has just been read from r.
@@ -567,6 +662,12 @@ func readPayload(r io.Reader, n uint64) ([]byte, error) {
 // readBoxBody reads complete box body. Returns error if not possible
 func readBoxBody(r io.Reader, h BoxHeader) ([]byte, error) {
 	hdrLen := uint64(h.Hdrlen)
+	if h.Size == 0 {
+		return nil, errSizeZeroNotSupported
+	}
+	if h.Size < hdrLen {
+		return nil, fmt.Errorf("box size %d is smaller than its %d-byte header", h.Size, hdrLen)
+	}
 	if hdrLen == h.Size {
 		return nil, nil
 	}

@@ -21,7 +21,7 @@ func GetTopBoxInfoList(rs io.ReadSeeker, stopBoxType string) ([]TopBoxInfo, erro
 	var topBoxList []TopBoxInfo
 
 	for {
-		h, err := DecodeHeader(rs)
+		h, err := DecodeHeaderSeek(rs)
 		if err == io.EOF {
 			break
 		}

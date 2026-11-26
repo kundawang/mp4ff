@@ -168,7 +168,7 @@ func decodeContainerChildrenSR(hdr BoxHeader, startPos, endPos uint64, sr bits.S
 			*trailing = sr.ReadBytes(int(endPos - pos))
 			break
 		}
-		child, err := DecodeBoxSR(pos, sr)
+		child, err := decodeChildBoxSR(pos, sr)
 		if err != nil {
 			return children, err
 		}

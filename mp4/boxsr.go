@@ -272,6 +272,18 @@ type BoxDecoderSR func(hdr BoxHeader, startPos uint64, sw bits.SliceReader) (Box
 
 // DecodeBoxSR - decode a box from SliceReader
 func DecodeBoxSR(startPos uint64, sr bits.SliceReader) (Box, error) {
+	h, d, err := decodeTopBoxHeaderSR(sr)
+	if err != nil {
+		return nil, err
+	}
+	return decodeBoxBodySR(startPos, h, d, sr)
+}
+
+// decodeChildBoxSR decodes a box known to be a child of another box. Unlike
+// DecodeBoxSR it never resolves a size of 0: that is only legal for a terminal
+// top-level mdat, so a size-0 child is an error even if sr does not carry the
+// parent box depth.
+func decodeChildBoxSR(startPos uint64, sr bits.SliceReader) (Box, error) {
 	h, d, err := decodeHeaderSR(sr)
 	if err != nil {
 		return nil, err
@@ -316,12 +328,38 @@ func lookupBoxType(b []byte) (string, BoxDecoderSR) {
 
 // DecodeHeaderSR - decode a box header (size + box type + possible largeSize) from sr
 func DecodeHeaderSR(sr bits.SliceReader) (BoxHeader, error) {
-	hdr, _, err := decodeHeaderSR(sr)
+	hdr, _, err := decodeHeaderSRPolicy(sr, zeroSRRootMdat)
 	return hdr, err
 }
 
+// zeroSRPolicy decides how decodeHeaderSRPolicy handles a size of 0. A size of 0
+// means that a terminal top-level mdat extends to the end of the file, so it is
+// only resolved for an mdat at the top level (depth 0). Every other use stays
+// an error: another box type is not covered by the rule, and for a nested box
+// the end of its reader is the end of the parent payload, not the end of the
+// file.
+type zeroSRPolicy int
+
+const (
+	// zeroSRReject never resolves a size of 0.
+	zeroSRReject zeroSRPolicy = iota
+	// zeroSRRootMdat resolves a size of 0 for a top-level mdat only.
+	zeroSRRootMdat
+)
+
 // decodeHeaderSR is DecodeHeaderSR also returning the decoder of the box type.
 func decodeHeaderSR(sr bits.SliceReader) (BoxHeader, BoxDecoderSR, error) {
+	return decodeHeaderSRPolicy(sr, zeroSRReject)
+}
+
+// decodeTopBoxHeaderSR reads the header of a box decoded with DecodeBoxSR. A
+// terminal top-level mdat may use size 0; a nested or different box may not.
+func decodeTopBoxHeaderSR(sr bits.SliceReader) (BoxHeader, BoxDecoderSR, error) {
+	return decodeHeaderSRPolicy(sr, zeroSRRootMdat)
+}
+
+// decodeHeaderSRPolicy is the shared header decoder, applying policy to size 0.
+func decodeHeaderSRPolicy(sr bits.SliceReader, policy zeroSRPolicy) (BoxHeader, BoxDecoderSR, error) {
 	if sr.NrRemainingBytes() < boxHeaderSize {
 		return BoxHeader{}, nil, fmt.Errorf("not enough bytes to read box header, need %d, have %d", boxHeaderSize, sr.NrRemainingBytes())
 	}
@@ -335,8 +373,14 @@ func decodeHeaderSR(sr bits.SliceReader) (BoxHeader, BoxDecoderSR, error) {
 		}
 		size = sr.ReadUint64()
 		headerLen += largeSizeLen
-	case 0: // size 0 means to end of file
-		return BoxHeader{}, nil, fmt.Errorf("Size 0, meaning to end of file, not supported")
+	case 0: // size 0 means that a terminal top-level mdat extends to EOF
+		resolve := policy == zeroSRRootMdat && boxType == "mdat" && boxDepth(sr) == 0
+		if !resolve {
+			return BoxHeader{}, nil, errSizeZeroNotSupported
+		}
+		// The header has been read, so what remains is the payload. The sr
+		// holds the whole bounded input, so this is the exact EOF bound.
+		size = uint64(sr.NrRemainingBytes()) + uint64(headerLen)
 	}
 	if uint64(headerLen) > size {
 		return BoxHeader{}, nil, fmt.Errorf("box header size %d exceeds box size %d", headerLen, size)

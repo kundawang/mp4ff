@@ -31,9 +31,21 @@ const maxNormalPayloadSize = (1 << 32) - 1 - 8
 
 // DecodeMdat - box-specific decode
 func DecodeMdat(hdr BoxHeader, startPos uint64, r io.Reader) (Box, error) {
-	data, err := readBoxBody(r, hdr)
-	if err != nil {
-		return nil, err
+	var data []byte
+	var err error
+	if hdr.Size == 0 {
+		// A size of 0 means that this top-level mdat extends to the end of the
+		// stream. The header decoder leaves Size at 0 only for a stream whose
+		// end it could not measure, so reading until EOF is the exact bound.
+		data, err = io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		data, err = readBoxBody(r, hdr)
+		if err != nil {
+			return nil, err
+		}
 	}
 	largeSize := hdr.Hdrlen > boxHeaderSize
 	return &MdatBox{StartPos: startPos, Data: data, LargeSize: largeSize}, nil
@@ -45,12 +57,22 @@ func DecodeMdat(hdr BoxHeader, startPos uint64, r io.Reader) (Box, error) {
 // If not enough content, an accumulated error is stored in sr, though
 func DecodeMdatSR(hdr BoxHeader, startPos uint64, sr bits.SliceReader) (Box, error) {
 	largeSize := hdr.Hdrlen > boxHeaderSize
-	return &MdatBox{StartPos: startPos, Data: sr.ReadBytes(hdr.payloadLen()), LargeSize: largeSize}, nil
+	payloadLen := mdatSRPayloadLen(hdr, sr)
+	return &MdatBox{StartPos: startPos, Data: sr.ReadBytes(payloadLen), LargeSize: largeSize}, nil
+}
+
+// mdatSRPayloadLen is the mdat payload length to read from sr. A zero header
+// size is the to-EOF marker and takes all bytes left in the bounded sr.
+func mdatSRPayloadLen(hdr BoxHeader, sr bits.SliceReader) int {
+	if hdr.Size == 0 {
+		return sr.NrRemainingBytes()
+	}
+	return hdr.payloadLen()
 }
 
 // decodeSRInto decodes an mdat box from sr into m, as DecodeMdatSR does. Its Data views the slice of sr.
 func (m *MdatBox) decodeSRInto(hdr BoxHeader, startPos uint64, sr bits.SliceReader) error {
-	*m = MdatBox{StartPos: startPos, Data: sr.ReadBytes(hdr.payloadLen()), LargeSize: hdr.Hdrlen > boxHeaderSize}
+	*m = MdatBox{StartPos: startPos, Data: sr.ReadBytes(mdatSRPayloadLen(hdr, sr)), LargeSize: hdr.Hdrlen > boxHeaderSize}
 	return nil
 }
 
@@ -61,6 +83,11 @@ func (m *MdatBox) IsLazy() bool {
 
 // DecodeMdatLazily - box-specific decode but Data is not in memory
 func DecodeMdatLazily(hdr BoxHeader, startPos uint64) (Box, error) {
+	if hdr.Size == 0 {
+		// The payload length is unknown here, and this call has no reader to
+		// measure the end of the file. DecodeBoxLazyMdat resolves size 0 first.
+		return nil, errSizeZeroNotSupported
+	}
 	largeSize := hdr.Hdrlen > boxHeaderSize
 	decLazyDataSize := hdr.Size - uint64(hdr.Hdrlen)
 	return &MdatBox{StartPos: startPos, lazyDataSize: decLazyDataSize, LargeSize: largeSize}, nil
