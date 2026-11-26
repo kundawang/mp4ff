@@ -12,7 +12,7 @@ import (
 //
 // Contained in : Sample Table box (stbl)
 //
-// For each track, either stsz of the more compact stz2 must be present. stz2 variant is not supported.
+// For each track, either stsz of the more compact stz2 must be present. stz2 is handled by Stz2Box.
 //
 // This table lists the size of each sample. If all samples have the same size, it can be defined in the
 // SampleUniformSize attribute.

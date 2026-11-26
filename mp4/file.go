@@ -757,10 +757,14 @@ func (f *File) CopySampleData(w io.Writer, rs io.ReadSeeker, trak *TrakBox,
 		return fmt.Errorf("trak does not have a complete mdia/minf/stbl structure")
 	}
 	stbl := trak.Mdia.Minf.Stbl
-	if stbl.Stsc == nil || stbl.Stsz == nil {
+	sizeBox := stbl.SampleSize()
+	if stbl.Stsc == nil || sizeBox == nil {
 		return fmt.Errorf("trak has no stsc or stsz box")
 	}
-	if _, err := stbl.Stsz.GetTotalSampleSize(startSampleNr, endSampleNr); err != nil {
+	if err := stbl.CheckSampleCounts(); err != nil {
+		return err
+	}
+	if _, err := sizeBox.GetTotalSampleSize(startSampleNr, endSampleNr); err != nil {
 		return fmt.Errorf("sample interval %d-%d: %w", startSampleNr, endSampleNr, err)
 	}
 	chunks, err := stbl.GetContainingChunks(startSampleNr, endSampleNr)
@@ -788,7 +792,7 @@ func (f *File) CopySampleData(w io.Writer, rs io.ReadSeeker, trak *TrakBox,
 			return fmt.Errorf("getChunkOffset: %w", err)
 		}
 		if i == 0 {
-			skipped, err := stbl.Stsz.GetTotalSampleSize(startNr, startSampleNr-1)
+			skipped, err := sizeBox.GetTotalSampleSize(startNr, startSampleNr-1)
 			if err != nil {
 				return err
 			}
@@ -799,7 +803,7 @@ func (f *File) CopySampleData(w io.Writer, rs io.ReadSeeker, trak *TrakBox,
 		if i == len(chunks)-1 {
 			endNr = endSampleNr
 		}
-		chunkSize, err := stbl.Stsz.GetTotalSampleSize(startNr, endNr)
+		chunkSize, err := sizeBox.GetTotalSampleSize(startNr, endNr)
 		if err != nil {
 			return err
 		}

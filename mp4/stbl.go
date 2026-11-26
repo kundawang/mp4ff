@@ -20,6 +20,7 @@ type StblBox struct {
 	Ctts  *CttsBox
 	Stsc  *StscBox
 	Stsz  *StszBox
+	Stz2  *Stz2Box
 	Stss  *StssBox
 	Stco  *StcoBox
 	Co64  *Co64Box
@@ -33,6 +34,80 @@ type StblBox struct {
 	Saiz  *SaizBox
 
 	Children []Box
+}
+
+// SampleSizeBox is the common interface of the sample size boxes stsz and stz2,
+// of which a sample table carries exactly one.
+type SampleSizeBox interface {
+	Box
+	GetNrSamples() uint32
+	GetSampleSize(sampleNr int) uint32
+	GetTotalSampleSize(startNr, endNr uint32) (uint64, error)
+}
+
+// SampleSize returns the stsz or stz2 box of this sample table, or nil if there
+// is neither. A valid table has exactly one of them.
+func (s *StblBox) SampleSize() SampleSizeBox {
+	switch {
+	case s.Stsz != nil:
+		return s.Stsz
+	case s.Stz2 != nil:
+		return s.Stz2
+	default:
+		return nil
+	}
+}
+
+// checkSampleSizeBox validates the sample size boxes of a decoded table: stsz
+// and stz2 are mutually exclusive. Cross-table sample counts are checked lazily
+// when sample data is read, so that tables with no samples stay decodable.
+func (s *StblBox) checkSampleSizeBox() error {
+	if s.Stsz != nil && s.Stz2 != nil {
+		return fmt.Errorf("stbl has both an stsz and an stz2 box, but only one sample size box is allowed")
+	}
+	return nil
+}
+
+// CheckSampleCounts verifies that the sample count of the stsz or stz2 box agrees
+// with the other sample tables: stts must cover the same number of samples, and
+// the stsc entries together with the stco/co64 chunk count must lay out the same
+// number. It returns nil when a table is absent, since those paths report their
+// own missing-box errors.
+func (s *StblBox) CheckSampleCounts() error {
+	sizeBox := s.SampleSize()
+	if sizeBox == nil {
+		return nil
+	}
+	nrSamples := sizeBox.GetNrSamples()
+	if s.Stts != nil {
+		var sttsCount uint64
+		for _, count := range s.Stts.SampleCount {
+			sttsCount += uint64(count)
+		}
+		if sttsCount != uint64(nrSamples) {
+			return fmt.Errorf("%s declares %d samples, but stts covers %d",
+				sizeBox.Type(), nrSamples, sttsCount)
+		}
+	}
+	if s.Stsc != nil {
+		nrChunks := 0
+		if s.Stco != nil {
+			nrChunks = len(s.Stco.ChunkOffset)
+		} else if s.Co64 != nil {
+			nrChunks = len(s.Co64.ChunkOffset)
+		}
+		if nrChunks > 0 {
+			chunkSamples, err := s.Stsc.totalSamplesForChunks(uint32(nrChunks))
+			if err != nil {
+				return err
+			}
+			if chunkSamples != nrSamples {
+				return fmt.Errorf("%s declares %d samples, but stsc/stco lay out %d",
+					sizeBox.Type(), nrSamples, chunkSamples)
+			}
+		}
+	}
+	return nil
 }
 
 // NewStblBox - Generate a new empty stbl box
@@ -54,6 +129,8 @@ func (s *StblBox) AddChild(child Box) {
 		s.Stsc = box
 	case *StszBox:
 		s.Stsz = box
+	case *Stz2Box:
+		s.Stz2 = box
 	case *StssBox:
 		s.Stss = box
 	case *StcoBox:
@@ -92,6 +169,9 @@ func DecodeStbl(hdr BoxHeader, startPos uint64, r io.Reader) (Box, error) {
 	for _, c := range children {
 		s.AddChild(c)
 	}
+	if err := s.checkSampleSizeBox(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -104,6 +184,9 @@ func DecodeStblSR(hdr BoxHeader, startPos uint64, sr bits.SliceReader) (Box, err
 	s := NewStblBox()
 	for _, c := range children {
 		s.AddChild(c)
+	}
+	if err := s.checkSampleSizeBox(); err != nil {
+		return nil, err
 	}
 	return s, sr.AccError()
 }

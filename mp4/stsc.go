@@ -317,6 +317,26 @@ func (b *StscBox) GetChunk(chunkNr uint32) (Chunk, error) {
 	return chunk, nil
 }
 
+// totalSamplesForChunks returns how many samples the entries place in the first
+// nrChunks chunks (chunks are one-based). It errors if nrChunks falls outside the
+// chunks the entries describe.
+func (b *StscBox) totalSamplesForChunks(nrChunks uint32) (uint32, error) {
+	if len(b.Entries) == 0 {
+		return 0, fmt.Errorf("no stsc entries for %d chunks", nrChunks)
+	}
+	lastEntry := b.Entries[len(b.Entries)-1]
+	if nrChunks < lastEntry.FirstChunk {
+		return 0, fmt.Errorf("stco/co64 declares %d chunks, but stsc starts its last entry at chunk %d",
+			nrChunks, lastEntry.FirstChunk)
+	}
+	nrSamples := uint64(lastEntry.FirstSampleNr-1) +
+		uint64(nrChunks-lastEntry.FirstChunk+1)*uint64(lastEntry.SamplesPerChunk)
+	if nrSamples > math.MaxUint32 {
+		return 0, fmt.Errorf("stsc describes more than 2^32-1 samples in %d chunks", nrChunks)
+	}
+	return uint32(nrSamples), nil
+}
+
 // entry returns the entry for a 0-based entryNr from one of the find methods.
 // An error is returned if entryNr is outside the entries, which is the case for
 // an empty stsc box or a chunkNr/sampleNr before the first entry, and if the

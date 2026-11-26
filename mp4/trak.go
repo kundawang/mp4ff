@@ -141,10 +141,10 @@ func (t *TrakBox) getSampleTable() (*StblBox, error) {
 // It returns 0 when the track has no sample table or sample size box.
 func (t *TrakBox) GetNrSamples() uint32 {
 	stbl, err := t.getSampleTable()
-	if err != nil || stbl.Stsz == nil {
+	if err != nil || stbl.SampleSize() == nil {
 		return 0
 	}
-	return stbl.Stsz.GetNrSamples()
+	return stbl.SampleSize().GetNrSamples()
 }
 
 // GetSampleData - get sample metadata for a specific interval of samples defined in moov.
@@ -157,13 +157,17 @@ func (t *TrakBox) GetSampleData(startSampleNr, endSampleNr uint32) ([]Sample, er
 	if err != nil {
 		return nil, err
 	}
-	if stbl.Stsz == nil {
-		return nil, fmt.Errorf("track has no stsz box")
+	if stbl.SampleSize() == nil {
+		return nil, fmt.Errorf("track has no stsz or stz2 box")
 	}
 	if stbl.Stts == nil {
 		return nil, fmt.Errorf("track has no stts box")
 	}
-	nrSamples := stbl.Stsz.GetNrSamples()
+	sizeBox := stbl.SampleSize()
+	if err := stbl.CheckSampleCounts(); err != nil {
+		return nil, err
+	}
+	nrSamples := sizeBox.GetNrSamples()
 	if startSampleNr < 1 || endSampleNr > nrSamples {
 		return nil, fmt.Errorf("sample interval %d-%d not inside available %d-%d", startSampleNr, endSampleNr, 1, nrSamples)
 	}
@@ -184,7 +188,7 @@ func (t *TrakBox) GetSampleData(startSampleNr, endSampleNr uint32) ([]Sample, er
 		samples[nr-startSampleNr] = Sample{
 			Flags:                 createSampleFlagsFromProgressiveBoxes(stss, sdtp, nr),
 			Dur:                   stts.GetDur(nr),
-			Size:                  stbl.Stsz.GetSampleSize(int(nr)),
+			Size:                  sizeBox.GetSampleSize(int(nr)),
 			CompositionTimeOffset: cto,
 		}
 	}
@@ -224,8 +228,9 @@ func (t *TrakBox) GetRangesForSampleInterval(startSampleNr, endSampleNr uint32) 
 	if err != nil {
 		return nil, err
 	}
-	if stbl.Stsz == nil {
-		return nil, fmt.Errorf("track has no stsz box")
+	sizeBox := stbl.SampleSize()
+	if sizeBox == nil {
+		return nil, fmt.Errorf("track has no stsz or stz2 box")
 	}
 	if stbl.Stsc == nil {
 		return nil, fmt.Errorf("track has no stsc box")
@@ -233,10 +238,12 @@ func (t *TrakBox) GetRangesForSampleInterval(startSampleNr, endSampleNr uint32) 
 	if stbl.Stco == nil && stbl.Co64 == nil {
 		return nil, fmt.Errorf("track has no stco or co64 box")
 	}
+	if err := stbl.CheckSampleCounts(); err != nil {
+		return nil, err
+	}
 	stco := stbl.Stco
 	co64 := stbl.Co64
-	stsz := stbl.Stsz
-	nrSamples := stbl.Stsz.GetNrSamples()
+	nrSamples := sizeBox.GetNrSamples()
 	if startSampleNr < 1 || endSampleNr > nrSamples {
 		return nil, fmt.Errorf("sample interval %d-%d not inside available %d-%d", startSampleNr, endSampleNr, 1, nrSamples)
 	}
@@ -259,7 +266,7 @@ func (t *TrakBox) GetRangesForSampleInterval(startSampleNr, endSampleNr uint32) 
 		startNrInChunk := chunk.StartSampleNr
 		endNrInChunk := chunk.StartSampleNr + chunk.NrSamples - 1
 		if idx == 0 { // First chunk, adapt startPoint
-			sizeUpToFirst, err := stsz.GetTotalSampleSize(chunk.StartSampleNr, startSampleNr-1)
+			sizeUpToFirst, err := sizeBox.GetTotalSampleSize(chunk.StartSampleNr, startSampleNr-1)
 			if err != nil {
 				return nil, err
 			}
@@ -269,7 +276,7 @@ func (t *TrakBox) GetRangesForSampleInterval(startSampleNr, endSampleNr uint32) 
 		if idx == lastChunkIdx {
 			endNrInChunk = endSampleNr
 		}
-		size, err := stsz.GetTotalSampleSize(startNrInChunk, endNrInChunk)
+		size, err := sizeBox.GetTotalSampleSize(startNrInChunk, endNrInChunk)
 		if err != nil {
 			return nil, err
 		}

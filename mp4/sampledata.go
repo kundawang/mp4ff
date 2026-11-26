@@ -26,7 +26,8 @@ func (f *File) ReadSampleData(trak *TrakBox, startSampleNr, endSampleNr uint32, 
 		return nil, fmt.Errorf("trak does not have a complete mdia/minf/stbl structure")
 	}
 	stbl := trak.Mdia.Minf.Stbl
-	if stbl.Stsc == nil || stbl.Stsz == nil {
+	sizeBox := stbl.SampleSize()
+	if stbl.Stsc == nil || sizeBox == nil {
 		return nil, fmt.Errorf("trak has no stsc or stsz box")
 	}
 	var getChunkOffset func(chunkNr int) (uint64, error)
@@ -38,7 +39,10 @@ func (f *File) ReadSampleData(trak *TrakBox, startSampleNr, endSampleNr uint32, 
 	default:
 		return nil, fmt.Errorf("neither stco nor co64 available")
 	}
-	totalSize, err := stbl.Stsz.GetTotalSampleSize(startSampleNr, endSampleNr)
+	if err := stbl.CheckSampleCounts(); err != nil {
+		return nil, err
+	}
+	totalSize, err := sizeBox.GetTotalSampleSize(startSampleNr, endSampleNr)
 	if err != nil {
 		return nil, fmt.Errorf("sample interval %d-%d: %w", startSampleNr, endSampleNr, err)
 	}
@@ -56,7 +60,7 @@ func (f *File) ReadSampleData(trak *TrakBox, startSampleNr, endSampleNr uint32, 
 		}
 		startNr, endNr := chunk.StartSampleNr, chunk.StartSampleNr+chunk.NrSamples-1
 		if i == 0 {
-			skipped, err := stbl.Stsz.GetTotalSampleSize(startNr, startSampleNr-1)
+			skipped, err := sizeBox.GetTotalSampleSize(startNr, startSampleNr-1)
 			if err != nil {
 				return nil, err
 			}
@@ -66,7 +70,7 @@ func (f *File) ReadSampleData(trak *TrakBox, startSampleNr, endSampleNr uint32, 
 		if i == len(chunks)-1 {
 			endNr = endSampleNr
 		}
-		size, err := stbl.Stsz.GetTotalSampleSize(startNr, endNr)
+		size, err := sizeBox.GetTotalSampleSize(startNr, endNr)
 		if err != nil {
 			return nil, err
 		}

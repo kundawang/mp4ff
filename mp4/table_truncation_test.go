@@ -18,6 +18,7 @@ func TestDecodeSampleTableTruncated(t *testing.T) {
 		decode mp4.BoxDecoderSR
 	}{
 		{"stsz", &mp4.StszBox{SampleNumber: 4, SampleSize: []uint32{100, 200, 300, 400}}, mp4.DecodeStszSR},
+		{"stz2", &mp4.Stz2Box{FieldSize: mp4.Stz2FieldSize8, SampleNumber: 4, SampleSize: []uint16{100, 200, 100, 144}}, mp4.DecodeStz2SR},
 		{"stts", &mp4.SttsBox{SampleCount: []uint32{2, 2}, SampleTimeDelta: []uint32{1024, 1025}}, mp4.DecodeSttsSR},
 		{"ctts", &mp4.CttsBox{EndSampleNr: []uint32{0, 2, 4}, SampleOffset: []int32{0, 1024}}, mp4.DecodeCttsSR},
 		{"stco", &mp4.StcoBox{ChunkOffset: []uint32{8, 1000, 2000, 3000}}, mp4.DecodeStcoSR},

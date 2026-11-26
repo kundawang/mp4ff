@@ -2081,8 +2081,8 @@ func TestDefragmentHybridTrackUnsupportedElstIsError(t *testing.T) {
 }
 
 // TestDefragmentChunksWithoutStszIsError pins that a progressive part whose
-// chunks are declared without an stsz (the unsupported stz2 shape) errors
-// instead of silently dropping the samples.
+// chunks are declared without an stsz or stz2 box errors instead of silently
+// dropping the samples.
 func TestDefragmentChunksWithoutStszIsError(t *testing.T) {
 	init := createDefragInit(t)
 	stbl := init.Moov.Traks[0].Mdia.Minf.Stbl
@@ -2101,8 +2101,8 @@ func TestDefragmentChunksWithoutStszIsError(t *testing.T) {
 		{Sample: mp4.Sample{Flags: defragSyncFlags(), Dur: 512, Size: 10}, DecodeTime: 1024, Data: defragPayload(1, 10)},
 	})
 	out, err := defragment(t, buf.Bytes(), 1)
-	if err == nil || !strings.Contains(err.Error(), "stz2 is not supported") {
-		t.Fatalf("chunks without stsz gave %v, want an stz2 error", err)
+	if err == nil || !strings.Contains(err.Error(), "stsz/stz2 declares no samples") {
+		t.Fatalf("chunks without stsz/stz2 gave %v, want a sample size error", err)
 	}
 	if out.Len() != 0 {
 		t.Errorf("wrote %d bytes before rejecting input", out.Len())

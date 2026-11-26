@@ -216,6 +216,7 @@ func init() {
 		"stsd":    DecodeStsd,
 		"stss":    DecodeStss,
 		"stsz":    DecodeStsz,
+		"stz2":    DecodeStz2,
 		"sttg":    DecodeSttg,
 		"stts":    DecodeStts,
 		"styp":    DecodeStyp,

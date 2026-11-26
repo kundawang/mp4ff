@@ -300,9 +300,10 @@ func progressiveChunks(track *defragTrack, fileSize uint64) ([]*defragChunk, err
 	if stbl == nil {
 		return nil, nil
 	}
-	if stbl.Stsz == nil || stbl.Stsz.GetNrSamples() == 0 {
-		// stsz carries the only sample count mp4ff reads, so chunks declared
-		// without it would be dropped silently.
+	sizeBox := stbl.SampleSize()
+	if sizeBox == nil || sizeBox.GetNrSamples() == 0 {
+		// The sample size box carries the only sample count mp4ff reads, so
+		// chunks declared without stsz or stz2 would be dropped silently.
 		nrChunks := 0
 		if stbl.Stco != nil {
 			nrChunks += len(stbl.Stco.ChunkOffset)
@@ -311,7 +312,7 @@ func progressiveChunks(track *defragTrack, fileSize uint64) ([]*defragChunk, err
 			nrChunks += len(stbl.Co64.ChunkOffset)
 		}
 		if nrChunks > 0 {
-			return nil, fmt.Errorf("%d chunks declared but stsz declares no samples (stz2 is not supported)", nrChunks)
+			return nil, fmt.Errorf("%d chunks declared but stsz/stz2 declares no samples", nrChunks)
 		}
 		return nil, nil
 	}
@@ -319,20 +320,22 @@ func progressiveChunks(track *defragTrack, fileSize uint64) ([]*defragChunk, err
 		return nil, fmt.Errorf("per-sample encryption auxiliary information (saiz/saio) " +
 			"cannot be carried into the progressive sample tables")
 	}
-	nrSamples := stbl.Stsz.GetNrSamples()
-	// A table-backed stsz is inherently bounded by its own box size, but a
-	// uniform-size stsz declares its count in a fixed-size box, and the
-	// per-sample expansions below allocate proportionally to the count. Bound
-	// it by what the file can physically hold before allocating anything.
-	if uint64(nrSamples) > uint64(len(stbl.Stsz.SampleSize)) {
-		uniform := stbl.Stsz.SampleUniformSize
+	nrSamples := sizeBox.GetNrSamples()
+	// A table-backed size box is inherently bounded by its own box size, but a
+	// uniform-size stsz declares its count in a fixed-size box, and the per-sample
+	// expansions below allocate proportionally to the count. Bound it by what the
+	// file can physically hold before allocating anything.
+	if stsz, isStsz := sizeBox.(*StszBox); isStsz &&
+		uint64(nrSamples) > uint64(len(stsz.SampleSize)) {
+		uniform := stsz.SampleUniformSize
 		if uniform == 0 || uint64(nrSamples)*uint64(uniform) > fileSize {
 			return nil, fmt.Errorf("stsz declares %d samples of uniform size %d, more than the %d bytes of the file",
 				nrSamples, uniform, fileSize)
 		}
 	}
 	if stbl.Stts == nil || stbl.Stsc == nil || (stbl.Stco == nil && stbl.Co64 == nil) {
-		return nil, fmt.Errorf("stsz declares %d samples but stts, stsc or stco/co64 is missing", nrSamples)
+		return nil, fmt.Errorf("%s declares %d samples but stts, stsc or stco/co64 is missing",
+			sizeBox.Type(), nrSamples)
 	}
 	durs, err := stbl.Stts.SampleDurations(nrSamples)
 	if err != nil {
@@ -356,7 +359,7 @@ func progressiveChunks(track *defragTrack, fileSize uint64) ([]*defragChunk, err
 	for i := uint32(0); i < nrSamples; i++ {
 		track.samples[i] = defragSample{
 			dur:     durs[i],
-			size:    stbl.Stsz.GetSampleSize(int(i + 1)),
+			size:    sizeBox.GetSampleSize(int(i + 1)),
 			cts:     ctss[i],
 			nonSync: !sync[i],
 		}
@@ -1123,6 +1126,7 @@ func fillSampleTables(track *defragTrack) error {
 	stbl.Ctts = ctts
 	stbl.Stsc = stsc
 	stbl.Stsz = stsz
+	stbl.Stz2 = nil
 	stbl.Stss = stss
 	stbl.Stco = stco
 	stbl.Co64 = nil
