@@ -170,6 +170,20 @@ meta.Iref.GetToItemIDs("dimg", itemID) returns. In the other direction, [IrefBox
 the thumbnails (thmb), the auxiliary images such as an alpha plane (auxl) and the metadata items (cdsc)
 of an image. The package does not decode the pixels.
 
+# CTA-608 closed captions in AVC video
+
+CTA-608 closed captions are carried as byte pairs inside user_data_registered_itu_t_t35 SEI
+messages of AVC (avc1/avc3) video samples, not as a separate track. The read-only
+[File.CTA608Events] walks the fragments of one video track and returns a [CTA608Event] timeline:
+
+	events, err := parsedFile.CTA608Events(trackID)
+
+Each event names the track, the CTA-608 field, the two raw bytes, with their parity bits kept, and
+the presentation time in the track timescale, computed from the tfdt base media decode time, the
+sample durations and the composition time offset. The bytes are not decoded into caption text.
+[Fragment.AppendCTA608Events] builds the same timeline one fragment at a time, for example while
+streaming, and [avc.ExtractCTA608Pairs] extracts the byte pairs of a single AVC sample.
+
 # More efficient I/O using SliceReader and SliceWriter
 
 The use of the interfaces [io.Reader] and [io.Writer] for reading and writing boxes gives a lot of
