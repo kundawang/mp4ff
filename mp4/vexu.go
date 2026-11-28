@@ -225,11 +225,7 @@ func DecodeProj(hdr BoxHeader, startPos uint64, r io.Reader) (Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := ProjBox{Children: make([]Box, 0, len(children))}
-	for _, c := range children {
-		b.AddChild(c)
-	}
-	return &b, nil
+	return decodeProjChildren(children)
 }
 
 // DecodeProjSR - box-specific decode
@@ -238,11 +234,7 @@ func DecodeProjSR(hdr BoxHeader, startPos uint64, sr bits.SliceReader) (Box, err
 	if err != nil {
 		return nil, err
 	}
-	b := ProjBox{Children: make([]Box, 0, len(children))}
-	for _, c := range children {
-		b.AddChild(c)
-	}
-	return &b, nil
+	return decodeProjChildren(children)
 }
 
 // AddChild - add child box

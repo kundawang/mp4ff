@@ -343,8 +343,8 @@ func hasHeader(data []byte, n *Node) bool {
 func childOffset(boxType string, payload []byte) (int, bool) {
 	switch boxType {
 	case "dinf", "edts", "ilst", "ipco", "iprp", "ludt", "mdia", "mfra", "minf", "moof", "moov", "mvex", "schi",
-		"sinf", "stbl", "traf", "trak", "tref", "trgr", "udta", "vexu", "desc", "\xa9ART", "\xa9nam", "\xa9too",
-		"\xa9cpy":
+		"sinf", "stbl", "sv3d", "proj", "traf", "trak", "tref", "trgr", "udta", "vexu", "desc", "\xa9ART",
+		"\xa9nam", "\xa9too", "\xa9cpy":
 		return 0, true
 	case "dref", "stsd", "trep", "wvtt", "wvtc":
 		return 8, true

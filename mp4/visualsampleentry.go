@@ -57,6 +57,8 @@ type VisualSampleEntryBox struct {
 	CoLL                     *CoLLBox
 	Vexu                     *VexuBox
 	Hfov                     *HfovBox
+	St3d                     *Stereo3DBox
+	Sv3d                     *SphericalVideoBox
 	Children                 []Box
 	TrailingBytes            []byte
 }
@@ -138,6 +140,10 @@ func (b *VisualSampleEntryBox) AddChild(child Box) {
 		b.Vexu = box
 	case *HfovBox:
 		b.Hfov = box
+	case *Stereo3DBox:
+		b.St3d = box
+	case *SphericalVideoBox:
+		b.Sv3d = box
 	}
 	b.Children = append(b.Children, child)
 }
@@ -227,6 +233,9 @@ func DecodeVisualSampleEntrySR(hdr BoxHeader, startPos uint64, sr bits.SliceRead
 	if err := b.checkLengthSizes(); err != nil {
 		return nil, err
 	}
+	if err := b.checkSphericalBoxes(); err != nil {
+		return nil, err
+	}
 	return &b, sr.AccError()
 }
 
@@ -236,6 +245,29 @@ func (b *VisualSampleEntryBox) checkLengthSizes() error {
 	if b.HvcC != nil && b.LhvC != nil && b.HvcC.LengthSizeMinusOne != b.LhvC.LengthSizeMinusOne {
 		return fmt.Errorf("lhvC lengthSizeMinusOne %d differs from hvcC lengthSizeMinusOne %d",
 			b.LhvC.LengthSizeMinusOne, b.HvcC.LengthSizeMinusOne)
+	}
+	return nil
+}
+
+// checkSphericalBoxes checks that the Spherical Video V2 st3d and sv3d boxes,
+// which are each limited to zero or one, do not occur more than once.
+func (b *VisualSampleEntryBox) checkSphericalBoxes() error {
+	nrSt3d, nrSv3d := 0, 0
+	for _, child := range b.Children {
+		switch child.Type() {
+		case "st3d":
+			nrSt3d++
+		case "sv3d":
+			nrSv3d++
+		}
+	}
+	if nrSt3d > 1 {
+		return fmt.Errorf("visual sample entry %s has %d st3d boxes, but at most one is allowed",
+			b.name, nrSt3d)
+	}
+	if nrSv3d > 1 {
+		return fmt.Errorf("visual sample entry %s has %d sv3d boxes, but at most one is allowed",
+			b.name, nrSv3d)
 	}
 	return nil
 }
@@ -295,6 +327,9 @@ func (b *VisualSampleEntryBox) Encode(w io.Writer) error {
 	if err := b.checkLengthSizes(); err != nil {
 		return err
 	}
+	if err := b.checkSphericalBoxes(); err != nil {
+		return err
+	}
 	err := EncodeHeader(b, w)
 	if err != nil {
 		return err
@@ -327,6 +362,9 @@ func (b *VisualSampleEntryBox) Encode(w io.Writer) error {
 // EncodeSW writes box to sw
 func (b *VisualSampleEntryBox) EncodeSW(sw bits.SliceWriter) error {
 	if err := b.checkLengthSizes(); err != nil {
+		return err
+	}
+	if err := b.checkSphericalBoxes(); err != nil {
 		return err
 	}
 	err := EncodeHeaderSW(b, sw)
@@ -435,6 +473,36 @@ func (b *VisualSampleEntryBox) ConvertAvc3ToAvc1(spss [][]byte, ppss [][]byte) e
 	b.AvcC.SPSnalus = spss
 	b.AvcC.PPSnalus = ppss
 	return nil
+}
+
+// Stereo3D returns the Spherical Video V2 st3d box of the sample entry, or nil if it has none.
+func (b *VisualSampleEntryBox) Stereo3D() *Stereo3DBox {
+	return b.St3d
+}
+
+// SphericalVideo returns the Spherical Video V2 sv3d box of the sample entry, or nil if it has none.
+func (b *VisualSampleEntryBox) SphericalVideo() *SphericalVideoBox {
+	return b.Sv3d
+}
+
+// EquirectangularProjection returns the equi box carried by the sample entry's
+// sv3d/proj boxes, or nil if the track has no spherical metadata or does not use
+// an equirectangular projection. Other projection data boxes (cbmp, mshp) stay
+// available as unknown children of the proj box.
+func (b *VisualSampleEntryBox) EquirectangularProjection() *EquirectangularProjectionBox {
+	if b.Sv3d == nil || b.Sv3d.Proj == nil {
+		return nil
+	}
+	return b.Sv3d.Proj.Equi
+}
+
+// ProjectionHeader returns the prhd box carried by the sample entry's sv3d/proj
+// boxes, or nil if the track has no spherical metadata.
+func (b *VisualSampleEntryBox) ProjectionHeader() *ProjectionHeaderBox {
+	if b.Sv3d == nil || b.Sv3d.Proj == nil {
+		return nil
+	}
+	return b.Sv3d.Proj.Prhd
 }
 
 // quickTimeQualityNames are the names of the codec quality levels of QuickTime.
